@@ -16,8 +16,8 @@ T_JOB=$(date +%s)
   echo "date: $(date -u)"
   nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
   lscpu | grep -E "Model name|^CPU\(s\)|Thread|Core"
-  free -g | head -2
-  df -h /tmp /kaggle/working | tail -2
+  free -g | head -n 2
+  df -h /tmp /kaggle/working | tail -n 2
   cat /etc/os-release | grep PRETTY
   lsblk -d -o NAME,ROTA,SIZE,MODEL 2>/dev/null
 } > "$OUT/hardware.txt" 2>&1
@@ -28,7 +28,7 @@ pip install -q uv >/dev/null 2>&1
 uv python install 3.11 >/dev/null 2>&1
 uv venv -q --clear -p 3.11 /tmp/venv
 export VIRTUAL_ENV=/tmp/venv PATH=/tmp/venv/bin:$PATH
-uv pip install -q -r "$REPO/requirements.txt" --index-strategy unsafe-best-match 2>&1 | tail -3
+uv pip install -q -r "$REPO/requirements.txt" --index-strategy unsafe-best-match 2>&1 | tail -n 3
 python -c "import torch, av, ultralytics, tensorrt; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), torch.cuda.device_count(), 'av', av.__version__, 'trt', tensorrt.__version__)" | tee -a "$OUT/job.log"
 echo "env_setup_s=$(( $(date +%s) - T0 ))" | tee -a "$OUT/job.log"
 
@@ -46,7 +46,7 @@ fetch() {  # fetch shard index N into $DATA/N/
 
 # ---- one-time preparation (weights + TensorRT engine) ----------------------------------
 T0=$(date +%s)
-( cd "$REPO" && python prepare.py --batch 64 ) 2>&1 | grep -v "^ " | tail -15 | tee -a "$OUT/job.log"
+( cd "$REPO" && python prepare.py --batch 64 ) 2>&1 | grep -v "^ " | tail -n 15 | tee -a "$OUT/job.log"
 echo "prepare_s=$(( $(date +%s) - T0 ))" | tee -a "$OUT/job.log"
 ls -la "$REPO"/yolo11l.* | tee -a "$OUT/job.log"
 
@@ -56,11 +56,11 @@ oracle)
   ( CUDA_VISIBLE_DEVICES=0 python "$REPO/tools/oracle.py" --input "$DATA/49" --out "$OUT/oracle_fast_49.npz" > "$OUT/oracle_fast.log" 2>&1 ) &
   ( CUDA_VISIBLE_DEVICES=1 python "$REPO/tools/oracle.py" --input "$DATA/49" --out "$OUT/oracle_stock_49.npz" --limit 8 --stock-limit 8 > "$OUT/oracle_stock.log" 2>&1 ) &
   wait
-  tail -3 "$OUT"/oracle_*.log | tee -a "$OUT/job.log"
+  tail -n 3 "$OUT"/oracle_*.log | tee -a "$OUT/job.log"
   # end-to-end benchmark of run.py on the same shard, one GPU
   for sps in 3; do
     CUDA_VISIBLE_DEVICES=0 python "$REPO/run.py" --input "$DATA/49" --output "$OUT/bench_sps$sps.jsonl" \
-      --samples-per-second $sps --stats "$OUT/bench_sps$sps.json" 2>&1 | grep -v "^ " | tail -4 | tee -a "$OUT/job.log"
+      --samples-per-second $sps --stats "$OUT/bench_sps$sps.json" 2>&1 | grep -v "^ " | tail -n 4 | tee -a "$OUT/job.log"
   done
   ;;
 full)
