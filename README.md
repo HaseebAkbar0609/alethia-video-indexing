@@ -9,7 +9,18 @@ that second's frames; people = median of the per-frame person counts, rounded do
 python run.py --input <folder of .parquet files> --output results.jsonl
 ```
 
-__RESULTS_SUMMARY__
+**Results (submitted run, all 50 shards):**
+- 1,650 videos, 461,757 seconds of video (128.3 h), 0 errors.
+- 2 h 25 min on Kaggle (2× T4, 4 vCPUs), including downloading the 25 GB of data. See [HARDWARE.md](HARDWARE.md).
+- YOLO11l ran on ~12 % of all frames (1.55 M of ~12.5 M).
+
+**Correctness of the real output** (`results.jsonl.gz`, shard `train-00049`, scored against YOLO11l run on *every* frame; files in `docs/kaggle_run/`):
+
+| reference | objects F1 | people exact | people ±1 |
+|---|---:|---:|---:|
+| every frame, this pipeline (33 videos, 8,934 s) | **0.9934** | **98.5 %** | **99.96 %** |
+| every frame, stock FP32 `model.predict` (8 videos, 2,230 s) | **0.9947** | **99.3 %** | **100 %** |
+| required by the brief | 0.95 | 85 % | 95 % |
 
 ---
 

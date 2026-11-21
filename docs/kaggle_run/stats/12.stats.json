@@ -1,0 +1,20 @@
+{
+ "videos": 33,
+ "errors": 0,
+ "seconds_with_frames": 11644,
+ "refined_seconds": 2376,
+ "frames_inferred": 42239,
+ "frames_pass2": 18969,
+ "wall_s": 457.4,
+ "startup_s": 10.5,
+ "gpu_infer_s": 153.6,
+ "main_wait_s": 398.5,
+ "backend": "tensorrt-fp16",
+ "workers": 3,
+ "worker_respawns": 0,
+ "samples_per_second": 2,
+ "refine": 1,
+ "refine_max": 8,
+ "ppl_tol": 0,
+ "batch": 64
+}

@@ -1,0 +1,21 @@
+{
+ "videos": 1650,
+ "errors": 0,
+ "seconds_with_frames": 461757,
+ "refined_seconds": 78331,
+ "frames_inferred": 1548830,
+ "frames_pass2": 626160,
+ "wall_s": 17283.3,
+ "startup_s": 560.9999999999999,
+ "gpu_infer_s": 6062.200000000001,
+ "main_wait_s": 14730.199999999995,
+ "workers": 150,
+ "worker_respawns": 0,
+ "samples_per_second": 100,
+ "refine": 50,
+ "refine_max": 400,
+ "ppl_tol": 0,
+ "batch": 3200,
+ "wall_s_including_downloads": 8705,
+ "shards_done": 50
+}

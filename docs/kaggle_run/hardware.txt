@@ -1,0 +1,19 @@
+date: Sat Nov 21 11:33:12 AM UTC 2026
+name, memory.total [MiB], driver_version
+Tesla T4, 15360 MiB, 580.178.04
+Tesla T4, 15360 MiB, 580.178.04
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) CPU @ 2.00GHz
+Thread(s) per core:                      2
+Core(s) per socket:                      2
+               total        used        free      shared  buff/cache   available
+Mem:              31           1          24           0           5          29
+overlay         8.0T  5.6T  2.5T  70% /
+/dev/loop2       20G   76K   20G   1% /kaggle/working
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME  ROTA  SIZE MODEL
+loop0    0    1G 
+loop1    0   96G 
+loop2    0   20G 
+sda      0  128G PersistentDisk  
+sdb      0    8T PersistentDisk  

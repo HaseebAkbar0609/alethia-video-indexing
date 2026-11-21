@@ -1,0 +1,162 @@
+mode=full repo=/tmp/repo commit=9f50418
+Creating new Ultralytics Settings v0.0.8 file ✅ 
+View Ultralytics Settings with 'yolo settings' or at '/root/.config/Ultralytics/settings.json'
+Update Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. For help see https://docs.ultralytics.com/usage/settings
+torch 2.14.1+cu126 cuda True 2 av 18.1.1 trt 10.16.1.11
+env_setup_s=133
+[KDownloading https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11l.pt to 'yolo11l.pt': 25% ━━━───────── 12.4/49.0MB 124.5MB/s 0.1s<0.3s[KDownloading https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11l.pt to 'yolo11l.pt': 100% ━━━━━━━━━━━━ 49.0MB 254.4MB/s 0.2s
+[prepare] weights ok 51387343
+Ultralytics 8.4.216 🚀 Python-3.11.18 torch-2.14.1+cu126 CPU (Intel Xeon CPU @ 2.00GHz)
+💡 ProTip: Export to OpenVINO format for best performance on Intel hardware. Learn more at https://docs.ultralytics.com/integrations/openvino
+YOLO11l summary (fused): 190 layers, 25,340,992 parameters, 0 gradients, 87.2 GFLOPs
+
+[34m[1mPyTorch:[0m starting from '/tmp/repo/yolo11l.pt' with input shape (64, 3, 640, 640) BCHW and output shape(s) (64, 84, 8400) (49.0 MB)
+
+[34m[1mONNX:[0m starting export with onnx 1.23.2 opset 18...
+[34m[1mONNX:[0m slimming with onnxslim 0.1.99...
+[34m[1mONNX:[0m export success ✅ 83.9s, saved as '/tmp/repo/yolo11l.onnx' (97.4 MB)
+
+Export complete (158.3s)
+Results saved to [1m/tmp/repo/yolo11l.onnx[0m
+Predict:         yolo predict task=detect model=/tmp/repo/yolo11l.onnx imgsz=640 
+Validate:        yolo val task=detect model=/tmp/repo/yolo11l.onnx imgsz=640  
+Visualize:       https://netron.app
+[prepare] engine built in 1026s
+Loading /tmp/repo/yolo11l.engine for TensorRT inference...
+[11/21/2026-11:52:35] [TRT] [I] Loaded engine size: 51 MiB
+[11/21/2026-11:52:35] [TRT] [I] [MS] Running engine with multi stream info
+[11/21/2026-11:52:35] [TRT] [I] [MS] Number of aux streams is 2
+[11/21/2026-11:52:35] [TRT] [I] [MS] Number of total worker streams is 3
+[11/21/2026-11:52:35] [TRT] [I] [MS] The main stream provided by execute/enqueue calls is the first worker stream
+[11/21/2026-11:52:35] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +1, GPU +2290, now: CPU 1, GPU 2340 (MiB)
+[prepare] check (1080, 810, 3): engine flags [True, False, False, False, False] people 4 | pytorch flags [True, False, False, False, False] people 4
+[prepare] check (720, 1280, 3): engine flags [True, False, False, False, False] people 2 | pytorch flags [True, False, False, False, False] people 2
+[prepare] engine OK (tensorrt-fp16, input fp32)
+prepare_s=1039
+-rw-r--r-- 1 root root  53908088 Nov 21 11:52 /tmp/repo/yolo11l.engine
+-rw-r--r-- 1 root root 102160673 Nov 21 11:38 /tmp/repo/yolo11l.onnx
+-rw-r--r-- 1 root root  51387343 Nov 21 11:35 /tmp/repo/yolo11l.pt
+fetched 0 in 4s
+fetched 1 in 3s
+fetched 2 in 4s
+fetched 3 in 4s
+fetched 4 in 6s
+fetched 5 in 6s
+gpu0 shard 0 rc=0 358s {"videos":33,"errors":0,"seconds_with_frames":9144,"refined_seconds":1636,"frames_inferred":31356,"frames_pass2":13085,"wall_s":356.2,"startup_s":14.5,"gpu_infer_s":114.0,"main_wait_s":303.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 6 in 6s
+gpu1 shard 1 rc=0 404s {"videos":33,"errors":0,"seconds_with_frames":9662,"refined_seconds":1839,"frames_inferred":34010,"frames_pass2":14704,"wall_s":401.2,"startup_s":13.5,"gpu_infer_s":134.7,"main_wait_s":343.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 7 in 8s
+gpu0 shard 2 rc=0 401s {"videos":33,"errors":0,"seconds_with_frames":11641,"refined_seconds":2146,"frames_inferred":40426,"frames_pass2":17166,"wall_s":398.5,"startup_s":13.5,"gpu_infer_s":147.1,"main_wait_s":337.9,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 8 in 4s
+gpu1 shard 3 rc=0 378s {"videos":33,"errors":0,"seconds_with_frames":9043,"refined_seconds":1596,"frames_inferred":30838,"frames_pass2":12768,"wall_s":376.1,"startup_s":12.7,"gpu_infer_s":130.4,"main_wait_s":320.4,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 9 in 5s
+gpu0 shard 4 rc=0 351s {"videos":33,"errors":0,"seconds_with_frames":9256,"refined_seconds":1412,"frames_inferred":29791,"frames_pass2":11291,"wall_s":349.6,"startup_s":8.9,"gpu_infer_s":110.1,"main_wait_s":303.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"pp
+fetched 10 in 6s
+gpu1 shard 5 rc=0 382s {"videos":33,"errors":0,"seconds_with_frames":9234,"refined_seconds":1486,"frames_inferred":30336,"frames_pass2":11888,"wall_s":380.2,"startup_s":11.6,"gpu_infer_s":124.1,"main_wait_s":324.9,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 11 in 4s
+gpu1 shard 7 rc=0 300s {"videos":33,"errors":0,"seconds_with_frames":7579,"refined_seconds":1414,"frames_inferred":26452,"frames_pass2":11310,"wall_s":298.2,"startup_s":11.8,"gpu_infer_s":109.8,"main_wait_s":248.9,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 12 in 4s
+gpu0 shard 6 rc=0 391s {"videos":33,"errors":0,"seconds_with_frames":9488,"refined_seconds":1792,"frames_inferred":33291,"frames_pass2":14333,"wall_s":388.2,"startup_s":12.3,"gpu_infer_s":120.7,"main_wait_s":336.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 13 in 4s
+gpu1 shard 9 rc=0 295s {"videos":33,"errors":0,"seconds_with_frames":7699,"refined_seconds":1138,"frames_inferred":24481,"frames_pass2":9100,"wall_s":293.2,"startup_s":9.5,"gpu_infer_s":100.4,"main_wait_s":248.0,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"ppl
+fetched 14 in 4s
+gpu0 shard 8 rc=0 356s {"videos":33,"errors":0,"seconds_with_frames":9419,"refined_seconds":2018,"frames_inferred":34934,"frames_pass2":16111,"wall_s":353.8,"startup_s":11.6,"gpu_infer_s":128.5,"main_wait_s":299.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 15 in 5s
+gpu1 shard 11 rc=0 389s {"videos":33,"errors":0,"seconds_with_frames":10450,"refined_seconds":1535,"frames_inferred":33091,"frames_pass2":12207,"wall_s":387.2,"startup_s":12.1,"gpu_infer_s":141.5,"main_wait_s":324.2,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 16 in 4s
+gpu0 shard 10 rc=0 320s {"videos":33,"errors":0,"seconds_with_frames":9235,"refined_seconds":1211,"frames_inferred":28143,"frames_pass2":9685,"wall_s":317.8,"startup_s":12.5,"gpu_infer_s":106.7,"main_wait_s":270.6,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"pp
+fetched 17 in 4s
+gpu1 shard 13 rc=0 304s {"videos":33,"errors":0,"seconds_with_frames":8691,"refined_seconds":1329,"frames_inferred":27999,"frames_pass2":10632,"wall_s":302.0,"startup_s":11.5,"gpu_infer_s":116.8,"main_wait_s":251.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 18 in 4s
+gpu0 shard 12 rc=0 459s {"videos":33,"errors":0,"seconds_with_frames":11644,"refined_seconds":2376,"frames_inferred":42239,"frames_pass2":18969,"wall_s":457.4,"startup_s":10.5,"gpu_infer_s":153.6,"main_wait_s":398.5,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 19 in 4s
+gpu1 shard 15 rc=0 343s {"videos":33,"errors":0,"seconds_with_frames":9653,"refined_seconds":1238,"frames_inferred":29192,"frames_pass2":9900,"wall_s":340.8,"startup_s":11.0,"gpu_infer_s":120.0,"main_wait_s":290.5,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"pp
+fetched 20 in 5s
+gpu0 shard 14 rc=0 339s {"videos":33,"errors":0,"seconds_with_frames":9678,"refined_seconds":1321,"frames_inferred":29910,"frames_pass2":10568,"wall_s":337.0,"startup_s":11.1,"gpu_infer_s":110.2,"main_wait_s":289.5,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 21 in 5s
+gpu1 shard 17 rc=0 393s {"videos":33,"errors":0,"seconds_with_frames":10011,"refined_seconds":1684,"frames_inferred":33470,"frames_pass2":13466,"wall_s":391.0,"startup_s":11.3,"gpu_infer_s":138.8,"main_wait_s":331.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 22 in 4s
+gpu0 shard 16 rc=0 414s {"videos":33,"errors":0,"seconds_with_frames":10798,"refined_seconds":1791,"frames_inferred":35902,"frames_pass2":14320,"wall_s":412.3,"startup_s":12.6,"gpu_infer_s":131.9,"main_wait_s":358.4,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 23 in 4s
+gpu1 shard 19 rc=0 324s {"videos":33,"errors":0,"seconds_with_frames":8821,"refined_seconds":1100,"frames_inferred":26424,"frames_pass2":8800,"wall_s":321.3,"startup_s":10.2,"gpu_infer_s":109.3,"main_wait_s":275.2,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"pp
+fetched 24 in 4s
+gpu0 shard 18 rc=0 348s {"videos":33,"errors":0,"seconds_with_frames":10008,"refined_seconds":1658,"frames_inferred":33210,"frames_pass2":13206,"wall_s":346.4,"startup_s":10.6,"gpu_infer_s":121.3,"main_wait_s":297.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 25 in 4s
+gpu1 shard 21 rc=0 401s {"videos":33,"errors":0,"seconds_with_frames":10254,"refined_seconds":2075,"frames_inferred":37085,"frames_pass2":16592,"wall_s":398.8,"startup_s":9.8,"gpu_infer_s":152.9,"main_wait_s":336.8,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 26 in 5s
+gpu0 shard 20 rc=0 322s {"videos":33,"errors":0,"seconds_with_frames":9350,"refined_seconds":1523,"frames_inferred":30870,"frames_pass2":12184,"wall_s":319.8,"startup_s":11.0,"gpu_infer_s":112.6,"main_wait_s":272.0,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 27 in 4s
+gpu1 shard 23 rc=0 360s {"videos":33,"errors":0,"seconds_with_frames":9168,"refined_seconds":1777,"frames_inferred":32534,"frames_pass2":14212,"wall_s":357.4,"startup_s":11.5,"gpu_infer_s":133.5,"main_wait_s":301.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 28 in 4s
+gpu0 shard 22 rc=0 264s {"videos":33,"errors":0,"seconds_with_frames":7315,"refined_seconds":1032,"frames_inferred":22845,"frames_pass2":8235,"wall_s":261.9,"startup_s":10.6,"gpu_infer_s":85.2,"main_wait_s":223.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"ppl
+fetched 29 in 5s
+gpu0 shard 24 rc=0 331s {"videos":33,"errors":0,"seconds_with_frames":8652,"refined_seconds":1366,"frames_inferred":28212,"frames_pass2":10928,"wall_s":330.1,"startup_s":11.0,"gpu_infer_s":103.0,"main_wait_s":286.4,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+gpu1 shard 25 rc=0 382s {"videos":33,"errors":0,"seconds_with_frames":10015,"refined_seconds":1537,"frames_inferred":32297,"frames_pass2":12292,"wall_s":380.8,"startup_s":8.8,"gpu_infer_s":133.7,"main_wait_s":328.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 30 in 3s
+fetched 31 in 8s
+gpu0 shard 26 rc=0 319s {"videos":33,"errors":0,"seconds_with_frames":8619,"refined_seconds":1275,"frames_inferred":27415,"frames_pass2":10194,"wall_s":316.8,"startup_s":8.6,"gpu_infer_s":101.6,"main_wait_s":274.8,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"pp
+fetched 32 in 5s
+gpu1 shard 27 rc=0 358s {"videos":33,"errors":0,"seconds_with_frames":8936,"refined_seconds":1723,"frames_inferred":31634,"frames_pass2":13781,"wall_s":355.6,"startup_s":12.9,"gpu_infer_s":132.5,"main_wait_s":298.1,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 33 in 4s
+gpu0 shard 28 rc=0 347s {"videos":33,"errors":0,"seconds_with_frames":8941,"refined_seconds":1554,"frames_inferred":30290,"frames_pass2":12422,"wall_s":345.5,"startup_s":9.1,"gpu_infer_s":110.5,"main_wait_s":302.0,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"pp
+fetched 34 in 6s
+gpu1 shard 29 rc=0 368s {"videos":33,"errors":0,"seconds_with_frames":10489,"refined_seconds":2067,"frames_inferred":37492,"frames_pass2":16534,"wall_s":366.0,"startup_s":11.9,"gpu_infer_s":155.8,"main_wait_s":303.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 35 in 4s
+gpu0 shard 30 rc=0 292s {"videos":33,"errors":0,"seconds_with_frames":7452,"refined_seconds":1159,"frames_inferred":24153,"frames_pass2":9262,"wall_s":290.1,"startup_s":14.3,"gpu_infer_s":89.9,"main_wait_s":246.7,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"ppl
+fetched 36 in 4s
+gpu1 shard 31 rc=0 312s {"videos":33,"errors":0,"seconds_with_frames":8033,"refined_seconds":1470,"frames_inferred":27808,"frames_pass2":11760,"wall_s":309.7,"startup_s":10.3,"gpu_infer_s":116.5,"main_wait_s":260.4,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 37 in 4s
+gpu0 shard 32 rc=0 379s {"videos":33,"errors":0,"seconds_with_frames":9488,"refined_seconds":1752,"frames_inferred":32971,"frames_pass2":14010,"wall_s":377.3,"startup_s":12.4,"gpu_infer_s":120.1,"main_wait_s":327.5,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 38 in 5s
+gpu1 shard 33 rc=0 369s {"videos":33,"errors":0,"seconds_with_frames":9481,"refined_seconds":1509,"frames_inferred":31004,"frames_pass2":12061,"wall_s":366.9,"startup_s":10.3,"gpu_infer_s":131.9,"main_wait_s":310.8,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 39 in 4s
+gpu0 shard 34 rc=0 390s {"videos":33,"errors":0,"seconds_with_frames":10358,"refined_seconds":1512,"frames_inferred":32786,"frames_pass2":12086,"wall_s":388.0,"startup_s":11.3,"gpu_infer_s":124.6,"main_wait_s":336.1,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 40 in 6s
+gpu1 shard 35 rc=0 336s {"videos":33,"errors":0,"seconds_with_frames":9105,"refined_seconds":1635,"frames_inferred":31270,"frames_pass2":13076,"wall_s":334.2,"startup_s":10.7,"gpu_infer_s":130.4,"main_wait_s":280.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 41 in 4s
+gpu1 shard 37 rc=0 291s {"videos":33,"errors":0,"seconds_with_frames":8342,"refined_seconds":1392,"frames_inferred":27795,"frames_pass2":11130,"wall_s":289.7,"startup_s":11.4,"gpu_infer_s":114.1,"main_wait_s":239.4,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 42 in 4s
+gpu0 shard 36 rc=0 327s {"videos":33,"errors":0,"seconds_with_frames":8966,"refined_seconds":1190,"frames_inferred":27417,"frames_pass2":9504,"wall_s":324.5,"startup_s":13.3,"gpu_infer_s":100.6,"main_wait_s":277.9,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"pp
+fetched 43 in 4s
+gpu1 shard 39 rc=0 315s {"videos":33,"errors":0,"seconds_with_frames":8171,"refined_seconds":1145,"frames_inferred":25475,"frames_pass2":9146,"wall_s":313.2,"startup_s":7.5,"gpu_infer_s":110.4,"main_wait_s":271.2,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"ppl
+fetched 44 in 3s
+gpu0 shard 38 rc=0 321s {"videos":33,"errors":0,"seconds_with_frames":7725,"refined_seconds":1786,"frames_inferred":29721,"frames_pass2":14288,"wall_s":318.6,"startup_s":11.0,"gpu_infer_s":110.0,"main_wait_s":273.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 45 in 4s
+gpu1 shard 41 rc=0 375s {"videos":33,"errors":0,"seconds_with_frames":10112,"refined_seconds":1518,"frames_inferred":32345,"frames_pass2":12139,"wall_s":373.2,"startup_s":8.1,"gpu_infer_s":132.8,"main_wait_s":320.4,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+fetched 46 in 6s
+gpu0 shard 40 rc=0 398s {"videos":33,"errors":0,"seconds_with_frames":11152,"refined_seconds":1944,"frames_inferred":37836,"frames_pass2":15552,"wall_s":395.4,"startup_s":10.5,"gpu_infer_s":137.3,"main_wait_s":341.4,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 47 in 4s
+gpu0 shard 42 rc=0 305s {"videos":33,"errors":0,"seconds_with_frames":8103,"refined_seconds":1182,"frames_inferred":25568,"frames_pass2":9381,"wall_s":303.8,"startup_s":11.4,"gpu_infer_s":93.6,"main_wait_s":262.1,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"ppl
+gpu1 shard 43 rc=0 353s {"videos":33,"errors":0,"seconds_with_frames":10305,"refined_seconds":1971,"frames_inferred":36355,"frames_pass2":15762,"wall_s":351.3,"startup_s":12.9,"gpu_infer_s":155.5,"main_wait_s":288.8,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"
+fetched 48 in 4s
+fetched 49 in 5s
+gpu1 shard 45 rc=0 315s {"videos":33,"errors":0,"seconds_with_frames":8141,"refined_seconds":1671,"frames_inferred":29629,"frames_pass2":13366,"wall_s":313.3,"startup_s":12.2,"gpu_infer_s":123.4,"main_wait_s":260.6,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+gpu0 shard 44 rc=0 353s {"videos":33,"errors":0,"seconds_with_frames":9671,"refined_seconds":1857,"frames_inferred":34181,"frames_pass2":14854,"wall_s":350.9,"startup_s":11.9,"gpu_infer_s":125.6,"main_wait_s":298.9,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+gpu1 shard 47 rc=0 320s {"videos":33,"errors":0,"seconds_with_frames":8020,"refined_seconds":1465,"frames_inferred":27740,"frames_pass2":11718,"wall_s":317.9,"startup_s":10.9,"gpu_infer_s":115.0,"main_wait_s":268.5,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+gpu0 shard 46 rc=0 312s {"videos":33,"errors":0,"seconds_with_frames":8685,"refined_seconds":1860,"frames_inferred":32228,"frames_pass2":14878,"wall_s":310.0,"startup_s":10.9,"gpu_infer_s":118.4,"main_wait_s":262.2,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+gpu1 shard 49 rc=0 316s {"videos":33,"errors":0,"seconds_with_frames":8934,"refined_seconds":1111,"frames_inferred":26735,"frames_pass2":8886,"wall_s":314.0,"startup_s":9.8,"gpu_infer_s":110.9,"main_wait_s":267.3,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"ppl
+gpu0 shard 48 rc=0 302s {"videos":33,"errors":0,"seconds_with_frames":8620,"refined_seconds":1553,"frames_inferred":29644,"frames_pass2":12418,"wall_s":300.2,"startup_s":11.4,"gpu_infer_s":110.0,"main_wait_s":254.9,"backend":"tensorrt-fp16","workers":3,"worker_respawns":0,"samples_per_second":2,"refine":1,"refine_max":8,"p
+{
+ "videos": 1650,
+ "errors": 0,
+ "seconds_with_frames": 461757,
+ "refined_seconds": 78331,
+ "frames_inferred": 1548830,
+ "frames_pass2": 626160,
+ "wall_s": 17283.3,
+ "startup_s": 560.9999999999999,
+ "gpu_infer_s": 6062.200000000001,
+ "main_wait_s": 14730.199999999995,
+ "workers": 150,
+ "worker_respawns": 0,
+ "samples_per_second": 100,
+ "refine": 50,
+ "refine_max": 400,
+ "ppl_tol": 0,
+ "batch": 3200,
+ "wall_s_including_downloads": 8705,
+ "shards_done": 50
+}
+461757
+-rw-r--r-- 1 root root 1391476 Nov 21 14:17 /kaggle/working/out/results.jsonl.gz
+job_total_s=9880

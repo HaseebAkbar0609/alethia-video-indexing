@@ -1,0 +1,19 @@
+{
+ "videos": 8,
+ "seconds": 2230,
+ "objects_f1": 0.9947,
+ "people_exact": 0.9928,
+ "people_within1": 1.0,
+ "missing_seconds": 0,
+ "extra_seconds": 0,
+ "pass": true,
+ "errors_ref": 0,
+ "errors_res": 0,
+ "class_errors": {
+  "fp:person": 6,
+  "fp:cell phone": 4,
+  "fn:cell phone": 3,
+  "fn:person": 2,
+  "fp:car": 1
+ }
+}
