@@ -519,11 +519,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--input", required=True, help="folder of .parquet files")
     ap.add_argument("--output", required=True, help="output .jsonl")
-    ap.add_argument("--samples-per-second", type=int, default=int(os.environ.get("VI_SPS", 3)),
+    ap.add_argument("--samples-per-second", type=int, default=int(os.environ.get("VI_SPS", 2)),
                     help="pass-1 frames per second of video")
     ap.add_argument("--refine", type=int, default=int(os.environ.get("VI_REFINE", 1)),
                     help="1: re-run uncertain seconds on more frames (pass 2), 0: pass 1 only")
-    ap.add_argument("--refine-max", type=int, default=int(os.environ.get("VI_REFINE_MAX", 0)),
+    ap.add_argument("--refine-max", type=int, default=int(os.environ.get("VI_REFINE_MAX", 8)),
                     help="extra frames per uncertain second (0 = all its frames)")
     ap.add_argument("--ppl-tol", type=int, default=int(os.environ.get("VI_PPL_TOL", 0)),
                     help="a second is uncertain if its sampled person counts differ by more than this")
