@@ -36,9 +36,10 @@ what produced the submitted results):
 
 | option | default | meaning |
 |---|---|---|
-| `--samples-per-second K` | __K__ | frames per second checked in pass 1 |
-| `--refine 0/1` | 1 | re-check seconds whose pass-1 frames disagree, using every frame of that second |
-| `--ppl-tol T` | __TOL__ | a second is "uncertain" if its sampled person counts differ by more than T |
+| `--samples-per-second K` | 2 | frames per second checked in pass 1 |
+| `--refine 0/1` | 1 | re-check seconds whose pass-1 frames disagree (pass 2) |
+| `--refine-max E` | 8 | extra frames per uncertain second (0 = all of its frames) |
+| `--ppl-tol T` | 0 | a second is "uncertain" if its sampled person counts differ by more than T |
 | `--batch` | 64 | GPU batch size |
 | `--workers` | CPU threads + 2 | decode processes |
 | `--backend` | auto | `trt` (engine) / `torch` |
@@ -72,7 +73,8 @@ frame of every second is always one of them). If those K frames all agree (same 
 person count), the all-frames vote is almost certainly the same, and the second is done. If they
 disagree, the second really is close to a decision boundary (an object entering, or a person half
 occluded). Its own frames are the only way to know which side of "half the frames" it falls on,
-so the worker re-decodes the video and the model sees every frame of just those seconds. Most
+so the worker re-decodes the video and the model sees 8 more frames of just those seconds
+(spread between the first two). Most
 seconds are static, so the model sees a small fraction of the frames while the results stay
 essentially those of the full reference.
 
@@ -107,7 +109,36 @@ as `YOLO("yolo11l.pt").predict(frame, imgsz=640, conf=0.4)`.
 4. **End-to-end**: `tools/reference.py` + `tools/compare.py` re-score real `run.py` output files
    against an independent all-frames reference built with the stock Ultralytics API.
 
-__VALIDATION_TABLE__
+### Validation results (held-out shard `train-00049`: 33 videos, 2.5 h, 239,643 frames)
+
+Every frame was run through the model, then each policy was replayed on those per-frame
+results (`tools/simulate_shard49.txt` is the full output). Reference = the brief's rule on
+**all** frames. The last column re-scores against the **stock FP32 Ultralytics** reference
+(8 videos, 58,892 frames), so it includes both sampling error and FP16/TensorRT numerics.
+
+| policy | frames through YOLO | objects F1 | people exact | people ±1 | vs stock FP32 (F1 / exact / ±1) |
+|---|---:|---:|---:|---:|---|
+| every frame, this pipeline (FP16) | 100 % | 1.0000 | 1.0000 | 1.0000 | 0.9993 / 0.9987 / 1.0000 |
+| 1 frame/s, no refinement | 3.7 % | 0.957 | 0.922 | 0.985 | 0.956 / 0.944 / 0.987 |
+| 2 frames/s, no refinement | 7.5 % | 0.967 | 0.947 | 0.995 | 0.966 / 0.964 / 0.997 |
+| 6 frames/s, no refinement | 22.4 % | 0.991 | 0.980 | 0.999 | 0.993 / 0.986 / 1.000 |
+| **2 frames/s + 8 extra on uncertain seconds (default)** | **11.2 %** | **0.993** | **0.984** | **0.999** | **0.994 / 0.992 / 1.000** |
+| 2 frames/s + all frames of uncertain seconds | 19.1 % | 0.997 | 0.994 | 1.000 | 0.998 / 0.997 / 1.000 |
+| 3 frames/s + all frames of uncertain seconds | 25.8 % | 0.9995 | 0.9987 | 1.000 | 0.999 / 0.998 / 1.000 |
+
+Pass thresholds are 0.95 / 0.85 / 0.95. Plain uniform sampling is cheap but sits close to the
+F1 bar at low rates. Adaptive refinement buys most of the accuracy back for a few percent more
+frames, because only the ~12 % of seconds where something is changing get extra frames.
+The default keeps a wide margin on all three metrics (it would still pass if the thresholds
+were raised a lot) while sending about 1 in 9 frames to the GPU. `--refine-max 0` gives the
+"all frames of uncertain seconds" row for anyone who prefers near-exactness over speed.
+
+![trade-off](docs/tradeoff.png)
+
+Also measured on the same shard, one T4: the stock `model.predict()` loop runs at about
+**52 frames/s**; this pipeline's PyTorch-FP16 path runs every frame at **~112 frames/s**
+(batched, uint8 upload, GPU post-processing). TensorRT and sampling come on top of that.
+
 
 ## Files
 
