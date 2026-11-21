@@ -1,0 +1,6 @@
+yolo11l.pt
+yolo11l.engine
+yolo11l.onnx
+*.jsonl
+__pycache__/
+/data/
