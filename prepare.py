@@ -16,6 +16,55 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def build_engine(pt, engine, batch):
+    """ONNX (Ultralytics exporter, FP32, dynamic) -> TensorRT FP16 engine with a tight profile:
+    batch 1..B, H/W 32..640 (the letterbox never exceeds 640), optimised for B x 384 x 640, the
+    shape of 16:9 video. Written with the Ultralytics metadata header so AutoBackend loads it."""
+    import json
+
+    import tensorrt as trt
+    from ultralytics import YOLO
+
+    model = YOLO(pt)
+    onnx_path = model.export(format="onnx", dynamic=True, simplify=True, imgsz=640, batch=batch, verbose=False)
+    logger = trt.Logger(trt.Logger.WARNING)
+    builder = trt.Builder(logger)
+    major = int(trt.__version__.split(".")[0])
+    flags = 0 if major >= 10 else (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+    network = builder.create_network(flags)
+    parser = trt.OnnxParser(network, logger)
+    if not parser.parse_from_file(onnx_path):
+        raise RuntimeError("ONNX parse failed: " + "; ".join(str(parser.get_error(i)) for i in range(parser.num_errors)))
+    config = builder.create_builder_config()
+    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 4 << 30)
+    if not hasattr(trt.BuilderFlag, "FP16"):
+        raise RuntimeError("this TensorRT has no FP16 builder flag (TensorRT >= 11)")
+    config.set_flag(trt.BuilderFlag.FP16)
+    inp = network.get_input(0)
+    profile = builder.create_optimization_profile()
+    profile.set_shape(inp.name, (1, 3, 32, 32), (batch, 3, 384, 640), (batch, 3, 640, 640))
+    config.add_optimization_profile(profile)
+    ser = builder.build_serialized_network(network, config)
+    if ser is None:
+        raise RuntimeError("TensorRT build returned None")
+    meta = {
+        "description": "YOLO11l FP16 TensorRT (prepare.py)",
+        "stride": 32,
+        "task": "detect",
+        "batch": batch,
+        "imgsz": [640, 640],
+        "names": {int(k): v for k, v in model.names.items()},
+        "half": True,
+        "dynamic": True,
+        "args": {"batch": batch, "half": True, "dynamic": True, "nms": False},
+    }
+    m = json.dumps(meta).encode()
+    with open(engine, "wb") as f:
+        f.write(len(m).to_bytes(4, byteorder="little", signed=True))
+        f.write(m)
+        f.write(ser)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--batch", type=int, default=64)
@@ -39,15 +88,20 @@ def main():
         return
     t = time.time()
     try:
-        out = YOLO(pt).export(format="engine", half=True, dynamic=True, batch=args.batch, imgsz=640, device=0, verbose=False)
-        if os.path.abspath(out) != engine:
-            shutil.move(out, engine)
-        print(f"[prepare] engine built in {time.time() - t:.0f}s")
+        build_engine(pt, engine, args.batch)
+        print(f"[prepare] engine built in {time.time() - t:.0f}s", flush=True)
     except Exception as e:
-        print(f"[prepare] TensorRT export failed ({e}); run.py will use PyTorch FP16", file=sys.stderr)
-        if os.path.exists(engine):
-            os.remove(engine)
-        return
+        print(f"[prepare] own TensorRT build failed ({e}); trying Ultralytics export", file=sys.stderr, flush=True)
+        try:
+            out = YOLO(pt).export(format="engine", half=True, dynamic=True, batch=args.batch, imgsz=640, device=0, verbose=False)
+            if os.path.abspath(out) != engine:
+                shutil.move(out, engine)
+            print(f"[prepare] engine built in {time.time() - t:.0f}s", flush=True)
+        except Exception as e2:
+            print(f"[prepare] TensorRT export failed ({e2}); run.py will use PyTorch FP16", file=sys.stderr)
+            if os.path.exists(engine):
+                os.remove(engine)
+            return
     # sanity check: engine vs PyTorch on the same frames (synthetic but structured input)
     try:
         sys.path.insert(0, HERE)

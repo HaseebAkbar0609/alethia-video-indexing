@@ -47,7 +47,7 @@ fetch() {  # fetch shard index N into $DATA/N/
 
 # ---- one-time preparation (weights + TensorRT engine) ----------------------------------
 T0=$(date +%s)
-( cd "$REPO" && python prepare.py --batch 64 ) 2>&1 | grep -v "^ " | tail -n 15 | tee -a "$OUT/job.log"
+( cd "$REPO" && python -u prepare.py --batch 64 ) 2>&1 | grep --line-buffered -v "^ " | tee -a "$OUT/job.log"
 echo "prepare_s=$(( $(date +%s) - T0 ))" | tee -a "$OUT/job.log"
 ls -la "$REPO"/yolo11l.* | tee -a "$OUT/job.log"
 
