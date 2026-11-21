@@ -30,8 +30,7 @@ def decode_all(mp4):
             secs.append(payload[1])
 
     run.WORKER_DECODE_THREADS = 2
-    # 1000 targets per second == every frame is "sampled"
-    run.sample_and_decode(mp4, 1000, emit, 256)
+    run.decode_pass(mp4, lambda idx, rel, sec: True, emit, 256)
     if not frames:
         return None, None
     return np.concatenate(frames), np.concatenate(secs)

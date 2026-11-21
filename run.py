@@ -24,7 +24,6 @@ import os
 import queue as queue_mod
 import sys
 import time
-import traceback
 from collections import defaultdict
 
 import numpy as np
@@ -110,40 +109,102 @@ class RowGroupCache:
         return v
 
 
-def sample_and_decode(mp4: bytes, fps_samples: int, emit, max_chunk: int):
-    """Decode a video, emit sampled letterboxed frames in chunks.
+class UniformSampler:
+    """Pass-1 selection: in every second pick the first frame at/after sec + j/K (j=0..K-1).
+    The first frame of every second is always picked, so no second is left without a sample."""
 
-    emit(kind, payload) is called with:
-        ("frames", (frames_uint8[N,H,W,3], seconds[N]))
-        ("done", {"last_second": int})            -- normal end
-        ("error", {"last_second": int|None, "msg": str})
+    def __init__(self, k):
+        self.k = k
+        self.cur = -1
+        self.j = 0
+        self.picked = []  # decode indices of picked frames
+
+    def __call__(self, idx, rel, sec):
+        if sec > self.cur:
+            self.cur, self.j = sec, 0
+        elif sec < self.cur:  # timestamps went backwards: never sample, pass 2 can still use it
+            return False
+        k = self.k
+        if self.j < k and rel + 1e-9 >= sec + self.j / k:
+            while self.j < k and rel + 1e-9 >= sec + self.j / k:
+                self.j += 1
+            self.picked.append(idx)
+            return True
+        return False
+
+
+class RefineSelector:
+    """Pass-2 selection: frames of the 'uncertain' seconds that pass 1 did not already use.
+    max_extra = 0 -> every frame of those seconds; otherwise at most max_extra extra frames
+    per second, spread evenly (by timestamp)."""
+
+    def __init__(self, seconds, skip, max_extra=0):
+        self.seconds = set(seconds)
+        self.skip = set(skip)
+        self.max_extra = max_extra
+        self.taken = {}
+        self.cur = -1
+        self.j = 0
+
+    def __call__(self, idx, rel, sec):
+        if sec not in self.seconds or idx in self.skip:
+            return False
+        if not self.max_extra:
+            return True
+        if sec != self.cur:
+            self.cur, self.j = sec, 0
+        k = self.max_extra
+        # extra targets placed between pass-1 targets: sec + (j + 0.5)/k
+        if self.j < k and rel + 1e-9 >= sec + (self.j + 0.5) / k:
+            while self.j < k and rel + 1e-9 >= sec + (self.j + 0.5) / k:
+                self.j += 1
+            return True
+        return False
+
+
+def decode_pass(mp4: bytes, select, emit, max_chunk: int):
+    """Decode a whole video once; letterbox and emit the frames select() accepts.
+
+    Times are relative to the first decoded frame (pts * time_base). Returns a dict:
+        {"last_second": int|None, "n_frames": int, "error": str|None}
+    emit("frames", (frames_uint8[N,H,W,3], seconds[N])) is called in chunks.
     """
     import io
 
     import av
 
-    container = av.open(io.BytesIO(mp4), mode="r", options={"err_detect": "ignore_err"})
+    info = {"last_second": None, "n_frames": 0, "error": None}
+    try:
+        container = av.open(io.BytesIO(mp4), mode="r")
+    except Exception as e:
+        info["error"] = f"could not open video: {type(e).__name__}"
+        return info
+    buf, secs = [], []
+
+    def flush():
+        nonlocal buf, secs
+        if buf:
+            emit("frames", (np.stack(buf), np.asarray(secs, dtype=np.int32)))
+            buf, secs = [], []
+
     try:
         if not container.streams.video:
-            raise RuntimeError("no video stream")
+            info["error"] = "no video stream"
+            return info
         stream = container.streams.video[0]
         stream.thread_type = "AUTO"
         stream.codec_context.thread_count = WORKER_DECODE_THREADS
         tb = stream.time_base
         t0 = None
         last_t = None
-        cur_sec = -1
-        next_j = 0
         params = None
         shape_key = None
         rot_k = 0
-        buf, secs = [], []
         prev_t = None
-        n_frames = 0
+        idx = 0
         fallback_fps = float(stream.average_rate or stream.guessed_rate or 30.0) or 30.0
         try:
             for frame in container.decode(stream):
-                # timestamp relative to the first decoded frame
                 if frame.pts is not None:
                     t = float(frame.pts * tb)
                 elif prev_t is not None:
@@ -158,49 +219,31 @@ def sample_and_decode(mp4: bytes, fps_samples: int, emit, max_chunk: int):
                     except Exception:
                         rot = 0
                     rot_k = int(round(rot / 90.0)) % 4
-                rel = t - t0
-                if rel < 0:  # out-of-order / pre-roll frame before the first decoded one
-                    rel = 0.0
-                n_frames += 1
+                rel = max(t - t0, 0.0)
                 sec = int(math.floor(rel + 1e-9))
                 if last_t is None or rel > last_t:
                     last_t = rel
-                if sec != cur_sec:
-                    if sec < cur_sec:  # non-monotonic timestamps: just treat as current second
-                        sec = cur_sec
-                    else:
-                        cur_sec = sec
-                        next_j = 0
-                # targets at sec + j/K, j = 0..K-1 ; first frame of each second always sampled
-                if next_j < fps_samples and rel + 1e-9 >= sec + next_j / fps_samples:
-                    while next_j < fps_samples and rel + 1e-9 >= sec + next_j / fps_samples:
-                        next_j += 1
+                    info["last_second"] = sec
+                if select(idx, rel, sec):
                     img = frame.to_ndarray(format="bgr24")
                     if rot_k:
                         img = np.ascontiguousarray(np.rot90(img, rot_k))
                     if shape_key != img.shape[:2]:
-                        if buf:
-                            emit("frames", (np.stack(buf), np.asarray(secs, dtype=np.int32)))
-                            buf, secs = [], []
+                        flush()
                         shape_key = img.shape[:2]
                         params = letterbox_params(*shape_key)
                     buf.append(letterbox(img, params))
                     secs.append(sec)
                     if len(buf) >= max_chunk:
-                        emit("frames", (np.stack(buf), np.asarray(secs, dtype=np.int32)))
-                        buf, secs = [], []
+                        flush()
+                idx += 1
+                info["n_frames"] = idx
         except Exception as e:  # damaged stream part-way
-            if buf:
-                emit("frames", (np.stack(buf), np.asarray(secs, dtype=np.int32)))
-            last = int(math.floor(last_t + 1e-9)) if last_t is not None else None
-            emit("error", {"last_second": last, "msg": f"decode failed after {n_frames} frames: {type(e).__name__}"})
-            return
-        if buf:
-            emit("frames", (np.stack(buf), np.asarray(secs, dtype=np.int32)))
-        if n_frames == 0:
-            emit("error", {"last_second": None, "msg": "could not decode video"})
-            return
-        emit("done", {"last_second": int(math.floor(last_t + 1e-9))})
+            info["error"] = f"decode failed after {idx} frames: {type(e).__name__}"
+        flush()
+        if info["n_frames"] == 0 and not info["error"]:
+            info["error"] = "could not decode video"
+        return info
     finally:
         container.close()
 
@@ -208,15 +251,19 @@ def sample_and_decode(mp4: bytes, fps_samples: int, emit, max_chunk: int):
 WORKER_DECODE_THREADS = 1
 
 
-def worker_main(task_q, out_q, fps_samples, max_chunk, decode_threads, shutdown=None):
+def worker_main(wid, task_q, out_q, reply_q, cfg, shutdown=None):
+    """Decode worker. For every video: pass 1 (uniform samples) -> wait for the main
+    process to say which seconds are uncertain -> pass 2 (re-decode, extra frames of those
+    seconds only) -> final message."""
     global WORKER_DECODE_THREADS
-    WORKER_DECODE_THREADS = decode_threads
+    WORKER_DECODE_THREADS = cfg["decode_threads"]
     import cv2
     import torch
 
     cv2.setNumThreads(1)
     torch.set_num_threads(1)
     cache = RowGroupCache()
+    max_chunk = cfg["chunk"]
     while True:
         task = task_q.get()
         if task is None:
@@ -229,23 +276,38 @@ def worker_main(task_q, out_q, fps_samples, max_chunk, decode_threads, shutdown=
         def emit(kind, payload, _vid=vid):
             if kind == "frames":
                 frames, secs = payload
-                out_q.put((_vid, "frames", torch.from_numpy(frames), torch.from_numpy(secs)))
+                out_q.put((_vid, "frames", torch.from_numpy(frames), torch.from_numpy(secs), wid))
             else:
-                out_q.put((_vid, kind, payload, None))
+                out_q.put((_vid, kind, payload, None, wid))
 
         try:
             mp4 = cache.get(path, rg, i)
         except Exception as e:
-            emit("error", {"last_second": None, "msg": f"could not read row: {type(e).__name__}"})
+            emit("final", {"last_second": None, "error": f"could not read row: {type(e).__name__}"})
             continue
         if not mp4:
-            emit("error", {"last_second": None, "msg": "empty mp4 field"})
+            emit("final", {"last_second": None, "error": "empty mp4 field"})
             continue
         try:
-            sample_and_decode(mp4, fps_samples, emit, max_chunk)
+            sampler = UniformSampler(cfg["sps"])
+            info = decode_pass(mp4, sampler, emit, max_chunk)
+            if info["error"] or not cfg["refine"]:
+                emit("final", info)
+                continue
+            emit("pass1", info)
+            while True:  # wait for the decision about this video
+                r_vid, seconds = reply_q.get()
+                if r_vid == vid:
+                    break
+            if seconds:
+                info2 = decode_pass(mp4, RefineSelector(seconds, sampler.picked, cfg["refine_max"]), emit, max_chunk)
+                if info2["error"] and not info["error"]:
+                    info["error"] = None  # pass 1 succeeded; a pass-2 failure only loses extra frames
+            emit("final", info)
         except Exception as e:
-            emit("error", {"last_second": None, "msg": f"could not decode video: {type(e).__name__}"})
-        del mp4
+            emit("final", {"last_second": None, "error": f"could not decode video: {type(e).__name__}"})
+        finally:
+            del mp4
 
 
 # --------------------------------------------------------------------------------------
@@ -322,13 +384,17 @@ class Detector:
 
 
 class VideoAcc:
-    __slots__ = ("pres", "people", "end", "outstanding")
+    __slots__ = ("pres", "people", "end", "pass1", "decided", "wid", "outstanding", "refined")
 
     def __init__(self):
-        self.pres = defaultdict(list)  # sec -> list of presence rows
-        self.people = defaultdict(list)
-        self.end = None  # ("done"|"error", payload)
+        self.pres = defaultdict(list)  # sec -> list of presence rows (bool[5])
+        self.people = defaultdict(list)  # sec -> list of person counts
+        self.end = None  # final info dict
+        self.pass1 = None  # pass-1 info dict (set when the worker waits for a decision)
+        self.decided = False
+        self.wid = None
         self.outstanding = 0  # frames queued but not yet inferred
+        self.refined = 0
 
 
 def median_floor(vals):
@@ -339,9 +405,29 @@ def median_floor(vals):
     return int((s[n // 2 - 1] + s[n // 2]) // 2)
 
 
+def uncertain_seconds(acc: "VideoAcc", ppl_tol: int):
+    """Seconds whose pass-1 samples do not agree. A second is certain only if every sampled
+    frame agrees on all five presence flags and the person counts differ by <= ppl_tol."""
+    out = []
+    for s, rows in acc.pres.items():
+        if len(rows) < 2:
+            if len(rows) == 1 and acc.people[s][0] > 0 and ppl_tol < 0:
+                out.append(s)
+            continue
+        arr = np.asarray(rows)
+        cnt = arr.sum(0)
+        if ((cnt > 0) & (cnt < len(rows))).any():
+            out.append(s)
+            continue
+        ppl = acc.people[s]
+        if max(ppl) - min(ppl) > ppl_tol:
+            out.append(s)
+    return sorted(out)
+
+
 def video_lines(vid, acc: VideoAcc):
-    kind, payload = acc.end
-    last = payload.get("last_second")
+    info = acc.end
+    last = info.get("last_second")
     lines = []
     if last is not None:
         for s in range(last + 1):
@@ -355,8 +441,8 @@ def video_lines(vid, acc: VideoAcc):
             else:
                 objs, ppl = [], 0
             lines.append({"video": vid, "second": s, "objects": objs, "people": ppl})
-    if kind == "error":
-        lines.append({"video": vid, "error": payload.get("msg", "error")})
+    if info.get("error"):
+        lines.append({"video": vid, "error": info["error"]})
     return lines
 
 
@@ -364,7 +450,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--input", required=True, help="folder of .parquet files")
     ap.add_argument("--output", required=True, help="output .jsonl")
-    ap.add_argument("--samples-per-second", type=int, default=int(os.environ.get("VI_SPS", 6)))
+    ap.add_argument("--samples-per-second", type=int, default=int(os.environ.get("VI_SPS", 3)),
+                    help="pass-1 frames per second of video")
+    ap.add_argument("--refine", type=int, default=int(os.environ.get("VI_REFINE", 1)),
+                    help="1: re-run uncertain seconds on more frames (pass 2), 0: pass 1 only")
+    ap.add_argument("--refine-max", type=int, default=int(os.environ.get("VI_REFINE_MAX", 0)),
+                    help="extra frames per uncertain second (0 = all its frames)")
+    ap.add_argument("--ppl-tol", type=int, default=int(os.environ.get("VI_PPL_TOL", 0)),
+                    help="a second is uncertain if its sampled person counts differ by more than this")
     ap.add_argument("--batch", type=int, default=int(os.environ.get("VI_BATCH", 64)))
     ap.add_argument("--workers", type=int, default=int(os.environ.get("VI_WORKERS", 0)), help="0 = auto")
     ap.add_argument("--decode-threads", type=int, default=int(os.environ.get("VI_DECODE_THREADS", 1)))
@@ -391,7 +484,8 @@ def main():
         tasks = tasks[: args.limit]
     n_videos = len(tasks)
     ncpu = os.cpu_count() or 4
-    workers = args.workers or max(1, min(ncpu - 1, 30))
+    # workers block while the GPU decides about their video, so use a few more than cores
+    workers = args.workers or max(2, min(ncpu + 2, 40))
     workers = max(1, min(workers, max(1, n_videos)))
 
     try:  # received shared-memory tensors each hold a file descriptor for a short while
@@ -405,31 +499,34 @@ def main():
     shutdown = ctx.Event()  # workers stay alive until the end so their shared tensors stay readable
     task_q = ctx.Queue()
     out_q = ctx.Queue(maxsize=workers * 2 + 8)
-    vids = {}
+    reply_qs = [ctx.Queue() for _ in range(workers)]
+    cfg = {
+        "sps": args.samples_per_second,
+        "refine": bool(args.refine),
+        "refine_max": args.refine_max,
+        "decode_threads": args.decode_threads,
+        "chunk": 32,
+    }
+    vids = []
     for path, rg, i, row in tasks:
         vid = f"{os.path.basename(path)}:{row}"
-        vids[vid] = (path, rg, i)
+        vids.append(vid)
         task_q.put((vid, path, rg, i))
     for _ in range(workers):
         task_q.put(None)
-    def spawn():
-        p = ctx.Process(
-            target=worker_main,
-            args=(task_q, out_q, args.samples_per_second, 32, args.decode_threads, shutdown),
-            daemon=True,
-        )
+
+    def spawn(wid):
+        p = ctx.Process(target=worker_main, args=(wid, task_q, out_q, reply_qs[wid], cfg, shutdown), daemon=True)
         p.start()
         return p
 
-    procs = [spawn() for _ in range(workers)]
+    procs = [spawn(w) for w in range(workers)]
     n_respawn = 0
 
     det = Detector(weights, args.engine, args.device, not args.fp32, args.batch, args.backend)
-    # warm-up (also triggers cuDNN autotune for the common 384x640 shape)
     if det.device.type == "cuda":
         torch.backends.cudnn.benchmark = True
-        for hw in ((384, 640),):
-            det.infer(torch.zeros((min(args.batch, 8), hw[0], hw[1], 3), dtype=torch.uint8))
+        det.infer(torch.zeros((min(args.batch, 8), 384, 640, 3), dtype=torch.uint8))  # warm-up
     t_model = time.time()
 
     out = open(args.output, "w", buffering=1 << 20)
@@ -441,43 +538,53 @@ def main():
     buffers: dict[tuple, list] = defaultdict(list)  # (H,W) -> list of (vid, frames, secs)
     buf_count: dict[tuple, int] = defaultdict(int)
     finished_workers = 0
-    n_done = 0
-    n_err = 0
-    n_frames = 0
-    t_gpu = 0.0
-    t_wait = 0.0
+    st = defaultdict(float)
     last_report = time.time()
 
     def finalize(vid):
-        nonlocal n_done, n_err
         acc = accs.pop(vid)
         written.add(vid)
         for ln in video_lines(vid, acc):
             out.write(json.dumps(ln) + "\n")
-        n_done += 1
-        if acc.end[0] == "error":
-            n_err += 1
+        st["videos_done"] += 1
+        st["seconds"] += len(acc.pres) if acc.end.get("last_second") is not None else 0
+        st["refined_seconds"] += acc.refined
+        if acc.end.get("error"):
+            st["errors"] += 1
+
+    def decide(vid):
+        acc = accs[vid]
+        secs = uncertain_seconds(acc, args.ppl_tol)
+        acc.refined = len(secs)
+        acc.decided = True
+        reply_qs[acc.wid].put((vid, secs))
+
+    def check(vid):
+        acc = accs.get(vid)
+        if acc is None or acc.outstanding:
+            return
+        if acc.end is not None:
+            finalize(vid)
+        elif acc.pass1 is not None and not acc.decided:
+            decide(vid)
 
     def run_buffer(key):
-        nonlocal n_frames, t_gpu
         items = buffers.pop(key)
         buf_count.pop(key, None)
         frames = torch.cat([it[1] for it in items]) if len(items) > 1 else items[0][1]
         t = time.time()
+        allp, allc = [], []
         for s0 in range(0, frames.shape[0], args.batch):
             chunk = frames[s0 : s0 + args.batch]
             if det.device.type == "cuda":
                 chunk = chunk.pin_memory()
             pres, ppl = det.infer(chunk)
-            if s0 == 0:
-                allp, allc = [pres], [ppl]
-            else:
-                allp.append(pres)
-                allc.append(ppl)
-        t_gpu += time.time() - t
+            allp.append(pres)
+            allc.append(ppl)
+        st["gpu_s"] += time.time() - t
         pres = np.concatenate(allp)
         ppl = np.concatenate(allc)
-        n_frames += frames.shape[0]
+        st["frames"] += frames.shape[0]
         off = 0
         touched = []
         for vid, fr, secs in items:
@@ -489,63 +596,74 @@ def main():
             acc.outstanding -= n
             off += n
             touched.append(vid)
-        for vid in touched:
-            acc = accs.get(vid)
-            if acc is not None and acc.end is not None and acc.outstanding == 0:
-                finalize(vid)
+        for vid in dict.fromkeys(touched):
+            check(vid)
+
+    def flush_video(vid):
+        for key in [k for k, its in buffers.items() if any(it[0] == vid for it in its)]:
+            if key in buffers:
+                run_buffer(key)
 
     while finished_workers < workers:
-        # replace workers that crashed (e.g. a decoder segfault on a damaged video)
-        for k, p in enumerate(procs):
+        for k, p in enumerate(procs):  # replace workers that crashed (e.g. decoder segfault)
             if p.exitcode not in (None, 0) and n_respawn < 1000:
-                procs[k] = spawn()
+                procs[k] = spawn(k)
                 n_respawn += 1
-                print(f"[run.py] worker died (exit {p.exitcode}), respawned", file=sys.stderr, flush=True)
+                print(f"[run.py] worker {k} died (exit {p.exitcode}), respawned", file=sys.stderr, flush=True)
+                for vid, acc in list(accs.items()):  # its in-flight video is lost: close it
+                    if acc.wid == k and acc.end is None:
+                        acc.end = {"last_second": acc.pass1["last_second"] if acc.pass1 else (max(acc.pres) if acc.pres else None),
+                                   "error": "worker crashed while decoding"}
+                        flush_video(vid)
+                        check(vid)
         tw = time.time()
         try:
-            msg = out_q.get(timeout=1.0)
-        except (EOFError, OSError, RuntimeError) as e:  # message from a worker that crashed mid-send
-            print(f"[run.py] dropped a message: {e}", file=sys.stderr, flush=True)
-            continue
+            msg = out_q.get(timeout=0.5)
         except queue_mod.Empty:
-            t_wait += time.time() - tw
-            # nothing arriving: flush the biggest partial buffer so the GPU is not idle
-            if buffers:
+            st["wait_s"] += time.time() - tw
+            if buffers:  # nothing arriving: run the biggest partial batch so nobody waits
                 run_buffer(max(buf_count, key=buf_count.get))
             if all(p.exitcode is not None for p in procs) and out_q.empty():
                 break
             continue
-        t_wait += time.time() - tw
+        except Exception as e:  # message from a worker that crashed mid-send
+            print(f"[run.py] dropped a message: {e}", file=sys.stderr, flush=True)
+            continue
+        st["wait_s"] += time.time() - tw
         if msg is None:
             finished_workers += 1
             continue
-        vid, kind, a, b = msg
+        vid, kind, a, b, wid = msg
         acc = accs.get(vid)
         if acc is None:
             acc = accs[vid] = VideoAcc()
+        acc.wid = wid
         if kind == "frames":
-            frames, secs = a, b
-            key = tuple(frames.shape[1:3])
-            buffers[key].append((vid, frames, secs))
-            buf_count[key] += frames.shape[0]
-            acc.outstanding += frames.shape[0]
+            key = tuple(a.shape[1:3])
+            buffers[key].append((vid, a, b))
+            buf_count[key] += a.shape[0]
+            acc.outstanding += a.shape[0]
+            if acc.pass1 is not None:
+                st["frames_pass2"] += a.shape[0]
             if buf_count[key] >= args.batch:
                 run_buffer(key)
-        else:
-            acc.end = (kind, a)
-            if acc.outstanding == 0:
-                finalize(vid)
-            else:
-                # flush buffers holding this video's frames so its lines can be written now
-                for key in [k for k, its in buffers.items() if any(it[0] == vid for it in its)]:
-                    if key in buffers:
-                        run_buffer(key)
+        elif kind == "pass1":
+            acc.pass1 = a
+            if acc.outstanding:
+                flush_video(vid)  # the worker is waiting: decide as soon as possible
+            check(vid)
+        else:  # final
+            acc.end = a
+            if acc.outstanding:
+                flush_video(vid)
+            check(vid)
         if time.time() - last_report > 30:
             last_report = time.time()
             el = time.time() - t_start
             print(
-                f"[run.py] {n_done}/{n_videos} videos, {n_frames} frames inferred, "
-                f"{n_frames / max(el, 1e-6):.0f} fr/s overall, gpu busy {t_gpu / max(el, 1e-6):.0%}, {el:.0f}s",
+                f"[run.py] {int(st['videos_done'])}/{n_videos} videos, {int(st['frames'])} frames "
+                f"({int(st['frames_pass2'])} in pass 2), {st['frames'] / max(el, 1e-6):.0f} fr/s, "
+                f"gpu busy {st['gpu_s'] / max(el, 1e-6):.0%}, {el:.0f}s",
                 file=sys.stderr,
                 flush=True,
             )
@@ -553,18 +671,16 @@ def main():
     for key in list(buffers):
         if key in buffers:
             run_buffer(key)
-    # any video whose worker died without reporting
-    for vid in list(accs):
+    for vid in list(accs):  # anything left open (worker died without reporting)
         acc = accs[vid]
         if acc.end is None:
-            acc.end = ("error", {"last_second": max(acc.pres) if acc.pres else None, "msg": "worker crashed"})
+            acc.end = {"last_second": max(acc.pres) if acc.pres else None, "error": "worker crashed"}
+        acc.outstanding = 0
         finalize(vid)
-    # videos that never produced any message (worker died before reporting anything)
     for vid in vids:
         if vid not in written:
             out.write(json.dumps({"video": vid, "error": "video was not processed (worker crashed)"}) + "\n")
-            n_err += 1
-    seen = n_done
+            st["errors"] += 1
     shutdown.set()
     for p in procs:
         p.join(timeout=5)
@@ -572,17 +688,22 @@ def main():
     el = time.time() - t_start
     stats = {
         "videos": n_videos,
-        "videos_written": seen,
-        "errors": n_err + len(early_errors),
-        "frames_inferred": n_frames,
+        "errors": int(st["errors"]) + len(early_errors),
+        "seconds_with_frames": int(st["seconds"]),
+        "refined_seconds": int(st["refined_seconds"]),
+        "frames_inferred": int(st["frames"]),
+        "frames_pass2": int(st["frames_pass2"]),
         "wall_s": round(el, 1),
-        "model_load_s": round(t_model - t_start, 1),
-        "gpu_infer_s": round(t_gpu, 1),
-        "main_wait_s": round(t_wait, 1),
+        "startup_s": round(t_model - t_start, 1),
+        "gpu_infer_s": round(st["gpu_s"], 1),
+        "main_wait_s": round(st["wait_s"], 1),
         "backend": det.backend_name,
         "workers": workers,
         "worker_respawns": n_respawn,
         "samples_per_second": args.samples_per_second,
+        "refine": args.refine,
+        "refine_max": args.refine_max,
+        "ppl_tol": args.ppl_tol,
         "batch": args.batch,
     }
     print("[run.py] done " + json.dumps(stats), file=sys.stderr, flush=True)

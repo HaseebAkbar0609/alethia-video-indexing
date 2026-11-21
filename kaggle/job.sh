@@ -58,7 +58,7 @@ oracle)
   wait
   tail -3 "$OUT"/oracle_*.log | tee -a "$OUT/job.log"
   # end-to-end benchmark of run.py on the same shard, one GPU
-  for sps in 4; do
+  for sps in 3; do
     CUDA_VISIBLE_DEVICES=0 python "$REPO/run.py" --input "$DATA/49" --output "$OUT/bench_sps$sps.jsonl" \
       --samples-per-second $sps --stats "$OUT/bench_sps$sps.json" 2>&1 | grep -v "^ " | tail -4 | tee -a "$OUT/job.log"
   done
