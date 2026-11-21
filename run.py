@@ -347,6 +347,7 @@ class Detector:
         # dtype the network input must have: an FP16 PyTorch model wants half, a TensorRT engine
         # wants whatever its input binding is (FP32 I/O for engines built from an FP32 ONNX)
         self.in_half = bool(getattr(getattr(model, "backend", model), "fp16", self.half))
+        self.pad_buckets = self.device.type == "cuda" and self.backend_name.startswith("pytorch")
         self.class_idx = torch.tensor(COCO_IDS, device=self.device)
         self.max_batch = batch
         self.engine_max_hw = None
@@ -358,7 +359,14 @@ class Detector:
         torch = self.torch
         from torchvision.ops import batched_nms
 
+        n_real = frames_u8.shape[0]
         x = frames_u8.to(self.device, non_blocking=True)
+        if self.pad_buckets and n_real < self.max_batch:
+            # PyTorch + cudnn.benchmark autotunes once per input shape: keep batch sizes to a
+            # few buckets (8, 16, 32, 64) instead of every size from 1 to 64
+            nb = min(self.max_batch, max(8, 1 << (n_real - 1).bit_length()))
+            if nb > n_real:
+                x = torch.cat([x, x.new_zeros((nb - n_real, *x.shape[1:]))])
         x = x.flip(-1).permute(0, 3, 1, 2)  # BGR->RGB, NHWC->NCHW (as ultralytics preprocess)
         x = x.half() if self.in_half else x.float()
         x = x.div_(255.0).contiguous()
@@ -366,7 +374,7 @@ class Detector:
             y = self.model(x)
             if isinstance(y, (list, tuple)):
                 y = y[0]
-            y = y.float()  # [N, 84, A]
+            y = y[:n_real].float()  # [N, 84, A]
             scores = y[:, 4:, :]  # [N, 80, A]
             best, cls = scores.max(1)  # [N, A] -- ultralytics NMS uses the best class per box
             keep = best >= CONF  # candidates
