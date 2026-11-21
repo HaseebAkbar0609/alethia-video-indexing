@@ -387,6 +387,68 @@ class Detector:
         return pres.cpu().numpy(), people.cpu().numpy()
 
 
+class AsyncInfer:
+    """Runs the detector on a background thread so that batch assembly / IPC in the main
+    thread overlap with GPU work. Batches are copied once into one of a few pinned host
+    buffers (the H2D copy is then a fast DMA); results come back on a queue."""
+
+    def __init__(self, det, batch, n_buffers=3):
+        import queue
+        import threading
+
+        import torch
+
+        self.det = det
+        self.torch = torch
+        self.cuda = det.device.type == "cuda"
+        cap = batch * IMGSZ * IMGSZ * 3
+        self.free = queue.Queue()
+        for _ in range(n_buffers):
+            b = torch.empty(cap, dtype=torch.uint8)
+            self.free.put(b.pin_memory() if self.cuda else b)
+        self.in_q = queue.Queue()
+        self.out_q = queue.Queue()
+        self.inflight = 0
+        self.gpu_s = 0.0
+        self.error = None
+        self.th = threading.Thread(target=self._loop, daemon=True)
+        self.th.start()
+
+    def submit(self, items):
+        """items: list of (vid, frames uint8 [n,H,W,3], secs int32 [n]); same H,W; total <= batch."""
+        torch = self.torch
+        buf = self.free.get()  # blocks when all buffers are in flight (back-pressure)
+        n = sum(int(it[1].shape[0]) for it in items)
+        h, w = items[0][1].shape[1:3]
+        view = buf[: n * h * w * 3].view(n, h, w, 3)
+        if len(items) == 1:
+            view.copy_(items[0][1])
+        else:
+            torch.cat([it[1] for it in items], out=view)
+        self.inflight += 1
+        self.in_q.put(([(v, int(f.shape[0]), sc) for v, f, sc in items], view, buf))
+
+    def _loop(self):
+        while True:
+            job = self.in_q.get()
+            if job is None:
+                return
+            meta, view, buf = job
+            t = time.time()
+            try:
+                pres, ppl = self.det.infer(view)
+            except Exception as e:  # surfaced in the main thread
+                self.error = e
+                pres = np.zeros((view.shape[0], 5), bool)
+                ppl = np.zeros(view.shape[0], np.int64)
+            self.gpu_s += time.time() - t
+            self.free.put(buf)
+            self.out_q.put((meta, pres, ppl))
+
+    def close(self):
+        self.in_q.put(None)
+
+
 class VideoAcc:
     __slots__ = ("pres", "people", "end", "pass1", "decided", "wid", "outstanding", "refined")
 
@@ -572,41 +634,66 @@ def main():
         elif acc.pass1 is not None and not acc.decided:
             decide(vid)
 
+    engine = AsyncInfer(det, args.batch)
+
+    def submit_key(key, force):
+        """Send full batches of this shape to the GPU thread (and the remainder if force)."""
+        items = buffers.get(key)
+        if not items:
+            return
+        while buf_count[key] >= args.batch or (force and buf_count[key] > 0):
+            take, n = [], 0
+            while items and n < args.batch:
+                vid, fr, sc = items[0]
+                m = int(fr.shape[0])
+                if n + m <= args.batch:
+                    take.append(items.pop(0))
+                    n += m
+                else:  # split this chunk across two batches
+                    k = args.batch - n
+                    take.append((vid, fr[:k], sc[:k]))
+                    items[0] = (vid, fr[k:], sc[k:])
+                    n += k
+            buf_count[key] -= n
+            engine.submit(take)
+        if not items:
+            buffers.pop(key, None)
+            buf_count.pop(key, None)
+
+    def apply_results(block):
+        """Move finished GPU results into the per-video accumulators."""
+        done = 0
+        while engine.inflight:
+            try:
+                meta, pres, ppl = engine.out_q.get(block=block, timeout=60 if block else None) if block else engine.out_q.get_nowait()
+            except queue_mod.Empty:
+                break
+            engine.inflight -= 1
+            if engine.error is not None:
+                raise engine.error
+            off = 0
+            touched = []
+            for vid, n, secs in meta:
+                acc = accs[vid]
+                for j, s in enumerate(secs.tolist()):
+                    acc.pres[s].append(pres[off + j])
+                    acc.people[s].append(int(ppl[off + j]))
+                acc.outstanding -= n
+                off += n
+                touched.append(vid)
+            st["frames"] += off
+            for vid in dict.fromkeys(touched):
+                check(vid)
+            done += 1
+            block = False  # after the first one, only drain what is ready
+        return done
+
     def run_buffer(key):
-        items = buffers.pop(key)
-        buf_count.pop(key, None)
-        frames = torch.cat([it[1] for it in items]) if len(items) > 1 else items[0][1]
-        t = time.time()
-        allp, allc = [], []
-        for s0 in range(0, frames.shape[0], args.batch):
-            chunk = frames[s0 : s0 + args.batch]
-            if det.device.type == "cuda":
-                chunk = chunk.pin_memory()
-            pres, ppl = det.infer(chunk)
-            allp.append(pres)
-            allc.append(ppl)
-        st["gpu_s"] += time.time() - t
-        pres = np.concatenate(allp)
-        ppl = np.concatenate(allc)
-        st["frames"] += frames.shape[0]
-        off = 0
-        touched = []
-        for vid, fr, secs in items:
-            n = fr.shape[0]
-            acc = accs[vid]
-            for j, s in enumerate(secs.tolist()):
-                acc.pres[s].append(pres[off + j])
-                acc.people[s].append(int(ppl[off + j]))
-            acc.outstanding -= n
-            off += n
-            touched.append(vid)
-        for vid in dict.fromkeys(touched):
-            check(vid)
+        submit_key(key, True)
 
     def flush_video(vid):
         for key in [k for k, its in buffers.items() if any(it[0] == vid for it in its)]:
-            if key in buffers:
-                run_buffer(key)
+            submit_key(key, True)
 
     while finished_workers < workers:
         for k, p in enumerate(procs):  # replace workers that crashed (e.g. decoder segfault)
@@ -620,13 +707,16 @@ def main():
                                    "error": "worker crashed while decoding"}
                         flush_video(vid)
                         check(vid)
+        apply_results(False)
         tw = time.time()
         try:
-            msg = out_q.get(timeout=0.5)
+            msg = out_q.get(timeout=0.2)
         except queue_mod.Empty:
             st["wait_s"] += time.time() - tw
-            if buffers:  # nothing arriving: run the biggest partial batch so nobody waits
+            if buffers and engine.inflight == 0:  # GPU idle and nothing arriving: run a partial batch
                 run_buffer(max(buf_count, key=buf_count.get))
+            elif engine.inflight:
+                apply_results(True)
             if all(p.exitcode is not None for p in procs) and out_q.empty():
                 break
             continue
@@ -650,7 +740,7 @@ def main():
             if acc.pass1 is not None:
                 st["frames_pass2"] += a.shape[0]
             if buf_count[key] >= args.batch:
-                run_buffer(key)
+                submit_key(key, False)
         elif kind == "pass1":
             acc.pass1 = a
             if acc.outstanding:
@@ -667,14 +757,16 @@ def main():
             print(
                 f"[run.py] {int(st['videos_done'])}/{n_videos} videos, {int(st['frames'])} frames "
                 f"({int(st['frames_pass2'])} in pass 2), {st['frames'] / max(el, 1e-6):.0f} fr/s, "
-                f"gpu busy {st['gpu_s'] / max(el, 1e-6):.0%}, {el:.0f}s",
+                f"gpu busy {engine.gpu_s / max(el, 1e-6):.0%}, {el:.0f}s",
                 file=sys.stderr,
                 flush=True,
             )
 
     for key in list(buffers):
-        if key in buffers:
-            run_buffer(key)
+        submit_key(key, True)
+    while engine.inflight:
+        apply_results(True)
+    engine.close()
     for vid in list(accs):  # anything left open (worker died without reporting)
         acc = accs[vid]
         if acc.end is None:
@@ -699,7 +791,7 @@ def main():
         "frames_pass2": int(st["frames_pass2"]),
         "wall_s": round(el, 1),
         "startup_s": round(t_model - t_start, 1),
-        "gpu_infer_s": round(st["gpu_s"], 1),
+        "gpu_infer_s": round(engine.gpu_s, 1),
         "main_wait_s": round(st["wait_s"], 1),
         "backend": det.backend_name,
         "workers": workers,
