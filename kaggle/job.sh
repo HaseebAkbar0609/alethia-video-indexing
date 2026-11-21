@@ -58,6 +58,7 @@ oracle)
   ( CUDA_VISIBLE_DEVICES=1 python "$REPO/tools/oracle.py" --input "$DATA/49" --out "$OUT/oracle_stock_49.npz" --limit 8 --stock-limit 8 > "$OUT/oracle_stock.log" 2>&1 ) &
   wait
   tail -n 3 "$OUT"/oracle_*.log | tee -a "$OUT/job.log"
+  python "$REPO/tools/simulate.py" "$OUT/oracle_fast_49.npz" "$OUT/oracle_stock_49.npz" 2>&1 | tee "$OUT/simulate.txt"
   # end-to-end benchmark of run.py on the same shard, one GPU
   for sps in 3; do
     CUDA_VISIBLE_DEVICES=0 python "$REPO/run.py" --input "$DATA/49" --output "$OUT/bench_sps$sps.jsonl" \

@@ -28,6 +28,10 @@ from collections import defaultdict
 
 import numpy as np
 
+# The timed run has no internet: never let Ultralytics try to auto-install or check for updates.
+os.environ.setdefault("YOLO_OFFLINE", "1")
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
+
 CLASS_NAMES = ["person", "car", "dog", "laptop", "cell phone"]
 COCO_IDS = [0, 2, 16, 63, 67]  # yolo11l (COCO) class ids for CLASS_NAMES
 CONF = 0.4

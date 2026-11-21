@@ -21,19 +21,59 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import run  # noqa: E402
 
 
-def decode_all(mp4):
-    frames, secs, raw = [], [], []
+def stream_fast(mp4, det, batch):
+    """Decode every frame, run the fast detector chunk by chunk (constant memory)."""
+    import torch
+
+    secs, P, C = [], [], []
+    shape = [None]
 
     def emit(kind, payload):
-        if kind == "frames":
-            frames.append(payload[0])
-            secs.append(payload[1])
+        fr, sc = payload
+        shape[0] = fr.shape[1:3]
+        for s in range(0, len(fr), batch):
+            x = torch.from_numpy(fr[s : s + batch])
+            p, c = det.infer(x.pin_memory() if torch.cuda.is_available() else x)
+            P.append(p)
+            C.append(c)
+        secs.append(sc)
 
     run.WORKER_DECODE_THREADS = 2
-    run.decode_pass(mp4, lambda idx, rel, sec: True, emit, 256)
-    if not frames:
-        return None, None
-    return np.concatenate(frames), np.concatenate(secs)
+    info = run.decode_pass(mp4, lambda idx, rel, sec: True, emit, batch)
+    if not secs:
+        return None
+    return np.concatenate(secs), np.concatenate(P), np.concatenate(C), shape[0], info
+
+
+def stream_stock(mp4, stock, batch=32):
+    import io
+
+    import av
+
+    c = av.open(io.BytesIO(mp4))
+    st = c.streams.video[0]
+    st.thread_type = "AUTO"
+    sp, sc, imgs = [], [], []
+    rk = None
+
+    def flush():
+        for r in stock.predict(imgs, imgsz=640, conf=0.4, verbose=False, device=0 if __import__("torch").cuda.is_available() else "cpu"):
+            cls = r.boxes.cls.int().tolist()
+            sp.append([cc in cls for cc in run.COCO_IDS])
+            sc.append(sum(1 for cc in cls if cc == 0))
+        imgs.clear()
+
+    for f in c.decode(st):
+        if rk is None:
+            rk = int(round((f.rotation or 0) / 90.0)) % 4
+        a = f.to_ndarray(format="bgr24")
+        imgs.append(np.ascontiguousarray(np.rot90(a, rk)) if rk else a)
+        if len(imgs) == batch:
+            flush()
+    if imgs:
+        flush()
+    c.close()
+    return np.asarray(sp, dtype=bool), np.asarray(sc, dtype=np.int16)
 
 
 def main():
@@ -50,7 +90,8 @@ def main():
     tasks, _ = run.list_tasks(args.input)
     if args.limit:
         tasks = tasks[: args.limit]
-    det = run.Detector(os.path.join(run.HERE, "yolo11l.pt"), os.path.join(run.HERE, "yolo11l.engine"), "cuda:0", True, args.batch, args.backend)
+    dev = "cuda:0" if torch.cuda.is_available() else "cpu"
+    det = run.Detector(os.path.join(run.HERE, "yolo11l.pt"), os.path.join(run.HERE, "yolo11l.engine"), dev, True, args.batch, args.backend)
     print("backend", det.backend_name, flush=True)
     stock = None
     if args.stock_limit:
@@ -63,57 +104,33 @@ def main():
     for k, (path, rg, i, row) in enumerate(tasks):
         vid = f"{os.path.basename(path)}:{row}"
         mp4 = cache.get(path, rg, i)
+        t = time.time()
         try:
-            fr, secs = decode_all(mp4)
+            r = stream_fast(mp4, det, args.batch)
         except Exception as e:
             print(vid, "decode error", e, flush=True)
             continue
-        if fr is None:
+        if r is None:
             continue
-        t = time.time()
-        P, C = [], []
-        for s in range(0, len(fr), args.batch):
-            p, c = det.infer(torch.from_numpy(fr[s : s + args.batch]).pin_memory())
-            P.append(p)
-            C.append(c)
-        torch.cuda.synchronize()
+        secs, fp, fc, shp, info = r
+        if dev != "cpu":
+            torch.cuda.synchronize()
         t_fast += time.time() - t
-        n_fast += len(fr)
+        n_fast += len(secs)
         res[vid + "|secs"] = secs.astype(np.int32)
-        res[vid + "|fast_pres"] = np.concatenate(P)
-        res[vid + "|fast_ppl"] = np.concatenate(C).astype(np.int16)
-        res[vid + "|shape"] = np.asarray(fr.shape[1:3])
+        res[vid + "|fast_pres"] = fp
+        res[vid + "|fast_ppl"] = fc.astype(np.int16)
+        res[vid + "|shape"] = np.asarray(shp)
         if stock is not None and k < args.stock_limit:
-            # stock API on the ORIGINAL frames (re-decode without letterbox)
-            import io
-
-            import av
-
-            c = av.open(io.BytesIO(mp4))
-            st = c.streams.video[0]
-            st.thread_type = "AUTO"
-            imgs = []
-            rk = None
-            for f in c.decode(st):
-                if rk is None:
-                    rk = int(round((f.rotation or 0) / 90.0)) % 4
-                a = f.to_ndarray(format="bgr24")
-                imgs.append(np.ascontiguousarray(np.rot90(a, rk)) if rk else a)
-            c.close()
             t = time.time()
-            sp, sc = [], []
-            for s in range(0, len(imgs), 32):
-                for r in stock.predict(imgs[s : s + 32], imgsz=640, conf=0.4, verbose=False, device=0):
-                    cls = r.boxes.cls.int().tolist()
-                    sp.append([cc in cls for cc in run.COCO_IDS])
-                    sc.append(sum(1 for cc in cls if cc == 0))
+            sp, sc = stream_stock(mp4, stock)
             t_stock += time.time() - t
-            n_stock += len(imgs)
-            if len(sp) != len(fr):
-                print(vid, "frame count mismatch", len(sp), len(fr), flush=True)
-            res[vid + "|stock_pres"] = np.asarray(sp, dtype=bool)
-            res[vid + "|stock_ppl"] = np.asarray(sc, dtype=np.int16)
-        print(f"{k + 1}/{len(tasks)} {vid} frames={len(fr)} fast {n_fast / max(t_fast, 1e-6):.0f} fr/s"
+            n_stock += len(sp)
+            if len(sp) != len(secs):
+                print(vid, "frame count mismatch", len(sp), len(secs), flush=True)
+            res[vid + "|stock_pres"] = sp
+            res[vid + "|stock_ppl"] = sc
+        print(f"{k + 1}/{len(tasks)} {vid} frames={len(secs)} fast {n_fast / max(t_fast, 1e-6):.0f} fr/s (incl. decode)"
               + (f" stock {n_stock / max(t_stock, 1e-6):.0f} fr/s" if n_stock else ""), flush=True)
         np.savez_compressed(args.out, **res)
     np.savez_compressed(args.out, **res)
