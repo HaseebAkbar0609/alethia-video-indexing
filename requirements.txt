@@ -48,6 +48,7 @@ nvidia-nvshmem-cu12==3.4.5
 nvidia-nvtx-cu12==12.6.77
 onnx==1.23.2
 onnxslim==0.1.99
+onnxruntime==1.32.0
 opencv-python==5.1.0.95
 opencv-python-headless==5.1.0.95
 packaging==26.3

@@ -69,6 +69,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--no-engine", action="store_true")
+    ap.add_argument("--force", action="store_true", help="rebuild the engine even if one exists")
     args = ap.parse_args()
     os.chdir(HERE)
     from ultralytics import YOLO
@@ -88,7 +89,10 @@ def main():
         return
     t = time.time()
     try:
-        build_engine(pt, engine, args.batch)
+        if os.path.exists(engine) and not args.force:
+            print("[prepare] existing engine found, checking it (use --force to rebuild)", flush=True)
+        else:
+            build_engine(pt, engine, args.batch)
         print(f"[prepare] engine built in {time.time() - t:.0f}s", flush=True)
     except Exception as e:
         print(f"[prepare] own TensorRT build failed ({e}); trying Ultralytics export", file=sys.stderr, flush=True)
@@ -102,30 +106,35 @@ def main():
             if os.path.exists(engine):
                 os.remove(engine)
             return
-    # sanity check: engine vs PyTorch on the same frames (synthetic but structured input)
+    # sanity check: engine vs PyTorch on real images, through run.py's own code path
     try:
         sys.path.insert(0, HERE)
+        import cv2
         import numpy as np
+        from ultralytics.utils import ASSETS
 
         import run
 
-        rng = np.random.default_rng(0)
-        x = (rng.random((16, 384, 640, 3)) * 255).astype(np.uint8)
+        imgs = [cv2.imread(str(ASSETS / n)) for n in ("bus.jpg", "zidane.jpg")]
         a = run.Detector(pt, engine, "cuda:0", True, args.batch, "trt")
         b = run.Detector(pt, engine, "cuda:0", True, args.batch, "torch")
-        ya = a.model(torch.from_numpy(x).cuda().flip(-1).permute(0, 3, 1, 2).half().div(255).contiguous())
-        yb = b.model(torch.from_numpy(x).cuda().flip(-1).permute(0, 3, 1, 2).half().div(255).contiguous())
-        ya = ya[0] if isinstance(ya, (list, tuple)) else ya
-        yb = yb[0] if isinstance(yb, (list, tuple)) else yb
-        err = (ya.float()[:, 4:] - yb.float()[:, 4:]).abs().max().item()
-        print(f"[prepare] engine vs pytorch max class-score diff {err:.4f}")
-        if not np.isfinite(err) or err > 0.05:
-            raise RuntimeError(f"engine output differs too much ({err})")
+        worst = 0.0
+        for im in imgs:
+            x = run.letterbox(im, run.letterbox_params(*im.shape[:2]))
+            xb = torch.from_numpy(np.repeat(x[None], 8, 0))
+            pa, ca = a.infer(xb)
+            pb, cb = b.infer(xb)
+            print(f"[prepare] check {im.shape}: engine flags {pa[0].tolist()} people {int(ca[0])} | "
+                  f"pytorch flags {pb[0].tolist()} people {int(cb[0])}", flush=True)
+            if (pa != pb).any() or abs(int(ca[0]) - int(cb[0])) > 1:
+                worst = 1.0
+        if worst:
+            raise RuntimeError("engine and PyTorch disagree on the check images")
+        print(f"[prepare] engine OK ({a.backend_name}, input {'fp16' if a.in_half else 'fp32'})", flush=True)
     except Exception as e:
         print(f"[prepare] engine check failed ({e}); removing engine", file=sys.stderr)
         if os.path.exists(engine):
             os.remove(engine)
-
 
 if __name__ == "__main__":
     main()

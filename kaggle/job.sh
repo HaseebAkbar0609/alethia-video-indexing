@@ -47,8 +47,11 @@ fetch() {  # fetch shard index N into $DATA/N/
 
 # ---- one-time preparation (weights + TensorRT engine) ----------------------------------
 T0=$(date +%s)
+mkdir -p /kaggle/working/cache
+[ -f /kaggle/working/cache/yolo11l.engine ] && cp /kaggle/working/cache/yolo11l.engine "$REPO/"
 ( cd "$REPO" && python -u prepare.py --batch 64 ) 2>&1 | grep --line-buffered -v "^ " | tee -a "$OUT/job.log"
 echo "prepare_s=$(( $(date +%s) - T0 ))" | tee -a "$OUT/job.log"
+[ -f "$REPO/yolo11l.engine" ] && cp "$REPO/yolo11l.engine" /kaggle/working/cache/
 ls -la "$REPO"/yolo11l.* | tee -a "$OUT/job.log"
 
 case "$MODE" in

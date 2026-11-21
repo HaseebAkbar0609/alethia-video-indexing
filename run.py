@@ -344,6 +344,9 @@ class Detector:
             self.backend_name = "pytorch-fp16" if self.half else "pytorch-fp32"
         model.eval()
         self.model = model
+        # dtype the network input must have: an FP16 PyTorch model wants half, a TensorRT engine
+        # wants whatever its input binding is (FP32 I/O for engines built from an FP32 ONNX)
+        self.in_half = bool(getattr(getattr(model, "backend", model), "fp16", self.half))
         self.class_idx = torch.tensor(COCO_IDS, device=self.device)
         self.max_batch = batch
         self.engine_max_hw = None
@@ -357,7 +360,7 @@ class Detector:
 
         x = frames_u8.to(self.device, non_blocking=True)
         x = x.flip(-1).permute(0, 3, 1, 2)  # BGR->RGB, NHWC->NCHW (as ultralytics preprocess)
-        x = x.half() if self.half else x.float()
+        x = x.half() if self.in_half else x.float()
         x = x.div_(255.0).contiguous()
         with torch.inference_mode():
             y = self.model(x)
