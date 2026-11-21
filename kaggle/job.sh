@@ -26,9 +26,10 @@ T_JOB=$(date +%s)
 T0=$(date +%s)
 pip install -q uv >/dev/null 2>&1
 uv python install 3.11 >/dev/null 2>&1
+unset UV_SYSTEM_PYTHON UV_PYTHON
 uv venv -q --clear -p 3.11 /tmp/venv
 export VIRTUAL_ENV=/tmp/venv PATH=/tmp/venv/bin:$PATH
-uv pip install -q -r "$REPO/requirements.txt" --index-strategy unsafe-best-match 2>&1 | tail -n 3
+uv pip install -q --python /tmp/venv/bin/python -r "$REPO/requirements.txt" --index-strategy unsafe-best-match 2>&1 | tail -n 5
 python -c "import torch, av, ultralytics, tensorrt; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), torch.cuda.device_count(), 'av', av.__version__, 'trt', tensorrt.__version__)" | tee -a "$OUT/job.log"
 echo "env_setup_s=$(( $(date +%s) - T0 ))" | tee -a "$OUT/job.log"
 
