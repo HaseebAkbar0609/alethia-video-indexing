@@ -1,1 +1,4 @@
 # Share links to the AI chats used for this task (one per line)
+https://claude.ai/share/8a905f15-4abe-4101-814a-77cacff3438a
+https://gemini.google.com/share/872089e4dc9f?social_preview=true&skid=064c5a8e-6905-4d9b-bbde-e27021c23dea&pli=1
+https://chatgpt.com/share/6b030c0d-e608-83e8-b039-7d2cc4a862b4
