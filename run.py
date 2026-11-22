@@ -31,6 +31,10 @@ import numpy as np
 # The timed run has no internet: never let Ultralytics try to auto-install or check for updates.
 os.environ.setdefault("YOLO_OFFLINE", "1")
 os.environ.setdefault("YOLO_AUTOINSTALL", "false")
+# Each decode worker reads a whole Parquet row group (~450 MB of Snappy-compressed mp4 bytes).
+# Arrow's default allocator (mimalloc) keeps ~2.6 GB per worker after that read; the system
+# allocator ~1.1 GB. Same bytes, same results, less than half the RAM per worker.
+os.environ.setdefault("ARROW_DEFAULT_MEMORY_POOL", "system")
 
 CLASS_NAMES = ["person", "car", "dog", "laptop", "cell phone"]
 COCO_IDS = [0, 2, 16, 63, 67]  # yolo11l (COCO) class ids for CLASS_NAMES
@@ -523,6 +527,21 @@ def video_lines(vid, acc: VideoAcc):
     return lines
 
 
+def _ram_worker_cap(per_worker_gb=2.5, reserve_gb=10.0):
+    """Decode workers that fit in the RAM available now (each holds one Parquet row group;
+    measured up to 2.0 GB per worker, 2.5 GB assumed), keeping reserve_gb for the main process, CUDA and the OS."""
+    try:
+        import psutil
+
+        avail = psutil.virtual_memory().available / 2**30
+    except Exception:
+        try:
+            avail = os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 2**30
+        except Exception:
+            return 40
+    return max(2, int((avail - reserve_gb) / per_worker_gb))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--input", required=True, help="folder of .parquet files")
@@ -562,7 +581,7 @@ def main():
     n_videos = len(tasks)
     ncpu = os.cpu_count() or 4
     # workers block while the GPU decides about their video, so use a few more than cores
-    workers = args.workers or max(2, min(ncpu + 2, 40))
+    workers = args.workers or max(2, min(ncpu + 2, 40, _ram_worker_cap()))
     workers = max(1, min(workers, max(1, n_videos)))
 
     try:  # received shared-memory tensors each hold a file descriptor for a short while

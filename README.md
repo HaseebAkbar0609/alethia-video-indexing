@@ -52,7 +52,7 @@ what produced the submitted results):
 | `--refine-max E` | 8 | extra frames per uncertain second (0 = all of its frames) |
 | `--ppl-tol T` | 0 | a second is "uncertain" if its sampled person counts differ by more than T |
 | `--batch` | 64 | GPU batch size |
-| `--workers` | CPU threads + 2 | decode processes |
+| `--workers` | CPU threads + 2, capped by free RAM (2.5 GB each) | decode processes |
 | `--backend` | auto | `trt` (engine) / `torch` |
 
 ---
@@ -112,8 +112,8 @@ as `YOLO("yolo11l.pt").predict(frame, imgsz=640, conf=0.4)`.
 
 1. **Per-frame equivalence tests** (`pytest tests`): letterbox is byte-identical for 7 aspect
    ratios, and detector flags/counts are identical to the stock Ultralytics API on real FineVideo frames.
-2. **All-frames reference** (`tools/oracle.py`): the model was run on *every* frame of a held-out
-   shard (train-00049), both with run.py's detector and with the stock FP32 Ultralytics API.
+2. **All-frames reference** (`tools/oracle.py`): the model was run on *every* frame of one
+   shard (train-00049; the same shard was used to choose the sampling settings), both with run.py's detector and with the stock FP32 Ultralytics API.
 3. **Policy search** (`tools/simulate.py`): every candidate sampling policy was replayed offline on
    those per-frame results and scored with the brief's three metrics against the all-frames
    reference. The table below is the output.
