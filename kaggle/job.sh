@@ -71,31 +71,5 @@ oracle)
 full)
   bash "$REPO/kaggle/full.sh" 2>&1 | tee -a "$OUT/job.log"
   ;;
-heldout)
-  # every-frame oracles for shards the settings were NOT tuned on (tuning used shard 49 only);
-  # shards fixed in advance: the first (0) and the middle (25) of the 50
-  fetch 0 & fetch 25 & wait
-  ( CUDA_VISIBLE_DEVICES=0 python "$REPO/tools/oracle.py" --input "$DATA/0" --out "$OUT/oracle_0.npz" --stock-limit 8 > "$OUT/oracle_0.log" 2>&1 ) &
-  ( CUDA_VISIBLE_DEVICES=1 python "$REPO/tools/oracle.py" --input "$DATA/25" --out "$OUT/oracle_25.npz" --stock-limit 8 > "$OUT/oracle_25.log" 2>&1 ) &
-  wait
-  tail -n 3 "$OUT"/oracle_*.log | tee -a "$OUT/job.log"
-  # score the production output of the full run (results.jsonl.gz, unchanged settings) on these shards
-  for s in 0 25; do
-    f=$(printf "train-%05d-of-01357" "$s")
-    zcat "$REPO/results.jsonl.gz" | grep "\"$f" > "$OUT/res_$s.jsonl"
-    for src in fast stock; do
-      python "$REPO/tools/oracle_to_ref.py" "$OUT/oracle_$s.npz" --source $src > "$OUT/ref_${s}_$src.jsonl"
-      python "$REPO/tools/compare.py" "$OUT/ref_${s}_$src.jsonl" "$OUT/res_$s.jsonl" --detail > "$OUT/heldout_${s}_$src.json"
-    done
-  done
-  python - "$OUT" <<'PY' 2>&1 | tee -a "$OUT/job.log"
-import json, sys
-o = sys.argv[1]
-for s in (0, 25):
-    for src in ("fast", "stock"):
-        d = json.load(open(f"{o}/heldout_{s}_{src}.json"))
-        print("HELDOUT", json.dumps({"shard": s, "ref": src, **d}, separators=(",", ":")))
-PY
-  ;;
 esac
 echo "job_total_s=$(( $(date +%s) - T_JOB ))" | tee -a "$OUT/job.log"
