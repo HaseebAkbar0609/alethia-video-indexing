@@ -71,5 +71,14 @@ oracle)
 full)
   bash "$REPO/kaggle/full.sh" 2>&1 | tee -a "$OUT/job.log"
   ;;
+heldout)
+  # every-frame oracles for shards the settings were NOT tuned on (tuning used shard 49 only);
+  # shards fixed in advance: the first (0) and the middle (25) of the 50
+  fetch 0 & fetch 25 & wait
+  ( CUDA_VISIBLE_DEVICES=0 python "$REPO/tools/oracle.py" --input "$DATA/0" --out "$OUT/oracle_0.npz" --stock-limit 8 > "$OUT/oracle_0.log" 2>&1 ) &
+  ( CUDA_VISIBLE_DEVICES=1 python "$REPO/tools/oracle.py" --input "$DATA/25" --out "$OUT/oracle_25.npz" --stock-limit 8 > "$OUT/oracle_25.log" 2>&1 ) &
+  wait
+  tail -n 3 "$OUT"/oracle_*.log | tee -a "$OUT/job.log"
+  ;;
 esac
 echo "job_total_s=$(( $(date +%s) - T_JOB ))" | tee -a "$OUT/job.log"
