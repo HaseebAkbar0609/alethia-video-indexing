@@ -120,7 +120,7 @@ as `YOLO("yolo11l.pt").predict(frame, imgsz=640, conf=0.4)`.
 4. **End-to-end**: `tools/reference.py` + `tools/compare.py` re-score real `run.py` output files
    against an independent all-frames reference built with the stock Ultralytics API.
 
-### Validation results (held-out shard `train-00049`: 33 videos, 2.5 h, 239,643 frames)
+### Validation results (shard `train-00049`, also used to pick the settings: 33 videos, 2.5 h, 239,643 frames)
 
 Every frame was run through the model, then each policy was replayed on those per-frame
 results (`tools/simulate_shard49.txt` is the full output). Reference = the brief's rule on
